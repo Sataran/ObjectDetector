@@ -29,4 +29,14 @@
         app:layout_constraintRight_toRightOf="parent"
         tools:ignore="MissingConstraints" />
 
+    <Button
+        android:id="@+id/photo_detection_button"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Open Photo \n Detection"
+        app:layout_constraintTop_toBottomOf="@+id/real_time_detection_button"
+        app:layout_constraintLeft_toLeftOf="parent"
+        app:layout_constraintRight_toRightOf="parent"
+        tools:ignore="MissingConstraints" />
+
 </android.support.constraint.ConstraintLayout>

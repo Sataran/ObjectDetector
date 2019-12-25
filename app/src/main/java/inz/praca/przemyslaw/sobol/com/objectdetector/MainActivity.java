@@ -12,6 +12,7 @@ import org.opencv.core.Core;
 public class MainActivity extends AppCompatActivity {
 
     private Button buttonToRealTimeDetection;
+    private Button buttonToPhotoDetection;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -25,10 +26,23 @@ public class MainActivity extends AppCompatActivity {
                 openRealTimeDetectionActivity();
             }
         });
+
+        buttonToPhotoDetection = findViewById(R.id.photo_detection_button);
+        buttonToPhotoDetection.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                openPhotoDetectionActivity();
+            }
+        });
     }
 
     public void openRealTimeDetectionActivity(){
         Intent intent = new Intent(this, RealTimeDetectionActivity.class);
+        startActivity(intent);
+    }
+
+    public void openPhotoDetectionActivity(){
+        Intent intent = new Intent(this, PhotoDetectionActivity.class);
         startActivity(intent);
     }
 }
