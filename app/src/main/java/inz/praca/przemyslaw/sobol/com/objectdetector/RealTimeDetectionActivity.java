@@ -1,8 +1,6 @@
 package inz.praca.przemyslaw.sobol.com.objectdetector;
 
 import android.Manifest;
-import android.annotation.SuppressLint;
-import android.app.Activity;
 import android.content.Context;
 import android.content.pm.PackageManager;
 import android.os.Bundle;
@@ -11,9 +9,7 @@ import android.support.v4.app.ActivityCompat;
 import android.support.v7.app.AppCompatActivity;
 import android.util.Log;
 import android.view.SurfaceView;
-import android.view.Window;
 import android.view.WindowManager;
-import android.widget.TextView;
 
 import org.opencv.android.BaseLoaderCallback;
 import org.opencv.android.CameraBridgeViewBase;
@@ -21,25 +17,27 @@ import org.opencv.android.LoaderCallbackInterface;
 import org.opencv.android.OpenCVLoader;
 import org.opencv.core.Mat;
 import org.opencv.core.MatOfRect;
+import org.opencv.core.Rect;
+import org.opencv.core.Scalar;
+import org.opencv.core.Size;
+import org.opencv.imgproc.Imgproc;
 import org.opencv.objdetect.CascadeClassifier;
 
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.InputStream;
 
-public class RealTimeDetectionActivity extends AppCompatActivity implements CameraBridgeViewBase.CvCameraViewListener2, Runnable {
+public class RealTimeDetectionActivity extends AppCompatActivity implements CameraBridgeViewBase.CvCameraViewListener2 {
 
     private static final String TAG = "BodyDetector";
-    private CameraBridgeViewBase cameraBridgeViewBase;
+    private CameraBridgeViewBase OpenCvCameraView;
 
-    private volatile boolean running = false;
-    private volatile int qtdFaces;
-    private volatile Mat matTmpProcessingFace;
+    private volatile Rect[] numberOfDetectedObjects;
+    private volatile Mat mRgba;
+    private volatile Mat frame;
 
     private CascadeClassifier cascadeClassifier;
-    private File mCascadeFile;
-    private TextView infoFaces;
-
+    private File cascadeFile;
 
     private BaseLoaderCallback baseLoaderCallback = new BaseLoaderCallback(this) {
 
@@ -47,7 +45,7 @@ public class RealTimeDetectionActivity extends AppCompatActivity implements Came
         public void onManagerConnected(int status) {
             if (status == LoaderCallbackInterface.SUCCESS) {
                 Log.i(TAG, "OpenCV loaded successfully");
-                cameraBridgeViewBase.enableView();
+                OpenCvCameraView.enableView();
             } else {
                 super.onManagerConnected(status);
             }
@@ -59,9 +57,8 @@ public class RealTimeDetectionActivity extends AppCompatActivity implements Came
         super.onCreate(savedInstanceState);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         setContentView(R.layout.activity_real_time_detection);
-        infoFaces = findViewById(R.id.real_time_id);
-        cameraBridgeViewBase = findViewById(R.id.main_surface);
-        loadHaarCascadeFile();
+        OpenCvCameraView = findViewById(R.id.main_surface);
+        loadHaarCascadeFile("haarcascade_frontalface_alt", R.raw.haarcascade_frontalface_alt);
         checkPermissions();
     }
 
@@ -84,19 +81,20 @@ public class RealTimeDetectionActivity extends AppCompatActivity implements Came
     }
 
     private void loadCameraBridge() {
-        cameraBridgeViewBase.setCameraIndex(CameraBridgeViewBase.CAMERA_ID_FRONT);
-        cameraBridgeViewBase.setVisibility(SurfaceView.VISIBLE);
-        cameraBridgeViewBase.setCvCameraViewListener(this);
+        OpenCvCameraView.setCameraIndex(CameraBridgeViewBase.CAMERA_ID_FRONT);
+        OpenCvCameraView.setVisibility(SurfaceView.VISIBLE);
+        OpenCvCameraView.setCvCameraViewListener(this);
+        OpenCvCameraView.setMaxFrameSize(900, 600);
     }
 
-    private void loadHaarCascadeFile() {
+    private void loadHaarCascadeFile(String classifierName, int classifierPosition) {
         try {
-            File cascadeDir = getDir("haarcascade_frontalface_alt", Context.MODE_PRIVATE);
-            mCascadeFile = new File(cascadeDir, "haarcascade_frontalface_alt.xml");
+            File cascadeDir = getDir(classifierName, Context.MODE_PRIVATE);
+            cascadeFile = new File(cascadeDir, classifierName + ".xml");
 
-            if (!mCascadeFile.exists()) {
-                FileOutputStream os = new FileOutputStream(mCascadeFile);
-                InputStream is = getResources().openRawResource(R.raw.haarcascade_frontalface_alt);
+            if (!cascadeFile.exists()) {
+                FileOutputStream os = new FileOutputStream(cascadeFile);
+                InputStream is = getResources().openRawResource(classifierPosition);
                 byte[] buffer = new byte[4096];
                 int bytesRead;
                 while ((bytesRead = is.read(buffer)) != -1) {
@@ -106,7 +104,7 @@ public class RealTimeDetectionActivity extends AppCompatActivity implements Came
                 os.close();
             }
         } catch (Throwable throwable) {
-            throw new RuntimeException("Failed to load Haar Cascade file");
+            throw new RuntimeException("Failed to load Haar Cascade file" + classifierName);
         }
     }
 
@@ -131,16 +129,30 @@ public class RealTimeDetectionActivity extends AppCompatActivity implements Came
             Log.d(TAG, "Internal OpenCV library not found. Using OpenCV Manager for initialization");
             OpenCVLoader.initAsync(OpenCVLoader.OPENCV_VERSION, this, baseLoaderCallback);
         }
-        cascadeClassifier = new CascadeClassifier(mCascadeFile.getAbsolutePath());
-        cascadeClassifier.load(mCascadeFile.getAbsolutePath());
-        startFaceDetect();
+        cascadeClassifier = new CascadeClassifier(cascadeFile.getAbsolutePath());
+        cascadeClassifier.load(cascadeFile.getAbsolutePath());
     }
 
     public Mat onCameraFrame(CameraBridgeViewBase.CvCameraViewFrame inputFrame) {
-        if (matTmpProcessingFace == null) {
-            matTmpProcessingFace = inputFrame.gray();
+        mRgba = inputFrame.rgba();
+
+        if(frame != null){
+            frame.release();
         }
-        return inputFrame.rgba();
+        frame = mRgba.clone();
+
+        if (frame != null) {
+            MatOfRect matOfRect = new MatOfRect();
+            cascadeClassifier.detectMultiScale(frame, matOfRect, 1.2, 5, 0, new Size(80, 80));
+            numberOfDetectedObjects = matOfRect.toArray();
+            if (numberOfDetectedObjects.length > 0) {
+                //Log.d("P1 numDetectedObjects", numberOfDetectedObjects.length+"");
+                for (int i = 0; i < numberOfDetectedObjects.length; i++) {
+                    Imgproc.rectangle(frame, numberOfDetectedObjects[i].tl(), numberOfDetectedObjects[i].br(), new Scalar(255,0,0), 3);
+                }
+            }
+        }
+        return frame;
     }
 
     @Override
@@ -153,52 +165,13 @@ public class RealTimeDetectionActivity extends AppCompatActivity implements Came
 
     }
 
-    public void startFaceDetect() {
-        if (running) return;
-        new Thread(this).start();
-    }
-
-    @Override
-    public void run() {
-        running = true;
-        while (running) {
-            try {
-                if (matTmpProcessingFace != null) {
-                    MatOfRect matOfRect = new MatOfRect();
-                    cascadeClassifier.detectMultiScale(matTmpProcessingFace, matOfRect);
-                    int newQtdFaces = matOfRect.toList().size();
-                    if (qtdFaces != newQtdFaces) {
-                        qtdFaces = newQtdFaces;
-                        runOnUiThread(new Runnable() {
-                            @Override
-                            public void run() {
-                                infoFaces.setText(String.format(getString(R.string.faces_detects), qtdFaces));
-                            }
-                        });
-                    }
-                    Thread.sleep(500);//if you want an interval
-                    matTmpProcessingFace = null;
-                }
-                Thread.sleep(50);
-            } catch (Throwable t) {
-                try {
-                    Thread.sleep(10_000);
-                } catch (Throwable tt) {
-                }
-            }
-        }
-    }
-
     public void onDestroy() {
         super.onDestroy();
         disableCamera();
     }
 
     private void disableCamera() {
-        running = false;
-        if (cameraBridgeViewBase != null)
-            cameraBridgeViewBase.disableView();
+        if (OpenCvCameraView != null)
+            OpenCvCameraView.disableView();
     }
-
-
 }
