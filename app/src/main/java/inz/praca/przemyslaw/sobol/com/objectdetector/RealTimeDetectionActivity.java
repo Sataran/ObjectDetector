@@ -33,16 +33,21 @@ public class RealTimeDetectionActivity extends AppCompatActivity implements Came
     private static final String TAG = "BodyDetector";
     private CameraBridgeViewBase OpenCvCameraView;
 
-    private volatile Rect[] numberOfDetectedObjects1;
-    private volatile Rect[] numberOfDetectedObjects2;
     private volatile Mat mRgba;
     private volatile Mat frame;
 
-    private CascadeClassifier cascadeClassifier1;
-    private File cascadeFile1;
+    private CascadeClassifier eyeClassifier;
+    private CascadeClassifier eyeGlassesClassifier;
+    private CascadeClassifier faceClassifier;
+    private CascadeClassifier lowerBodyClassifier;
+    private CascadeClassifier upperBodyClassifier;
 
-    private CascadeClassifier cascadeClassifier2;
-    private File cascadeFile2;
+    private File eyeClassifierFile;
+    private File eyeGlassesClassifierFile;
+    private File faceClassifierFile;
+    private File lowerBodyClassifierFile;
+    private File upperBodyClassifierFile;
+
 
     Point point = new Point();
 
@@ -62,13 +67,36 @@ public class RealTimeDetectionActivity extends AppCompatActivity implements Came
     @Override
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        init();
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         setContentView(R.layout.activity_real_time_detection);
         OpenCvCameraView = findViewById(R.id.main_surface);
-        loadHaarCascadeFile1("haarcascade_frontalface_alt", R.raw.haarcascade_frontalface_alt);
-        loadHaarCascadeFile2("haarcascade_eye", R.raw.haarcascade_eye);
+        loadHaarCascadeFile(eyeClassifierFile,"haarcascade_eye", R.raw.haarcascade_eye);
+        loadHaarCascadeFile(eyeGlassesClassifierFile,"haarcascade_eyeglasses", R.raw.haarcascade_eyeglasses);
+        loadHaarCascadeFile(faceClassifierFile,"haarcascade_frontalface_alt", R.raw.haarcascade_frontalface_alt);
+        loadHaarCascadeFile(lowerBodyClassifierFile,"haarcascade_lowerbody", R.raw.haarcascade_lowerbody);
+        loadHaarCascadeFile(upperBodyClassifierFile,"haarcascade_upperbody", R.raw.haarcascade_upperbody);
+
 
         checkPermissions();
+    }
+
+    private void init(){
+        File eyeDir = getDir("haarcascade_eye", Context.MODE_PRIVATE);
+        eyeClassifierFile = new File(eyeDir, "haarcascade_eye.xml");
+
+        File eyeGlassesDir = getDir("haarcascade_eyeglasses", Context.MODE_PRIVATE);
+        eyeGlassesClassifierFile = new File(eyeGlassesDir, "haarcascade_eyeglasses.xml");
+
+        File faceDir = getDir("haarcascade_frontalface_alt", Context.MODE_PRIVATE);
+        faceClassifierFile = new File(faceDir, "haarcascade_frontalface_alt.xml");
+
+        File lowerBodyDir = getDir("haarcascade_lowerbody", Context.MODE_PRIVATE);
+        lowerBodyClassifierFile = new File(lowerBodyDir, "haarcascade_lowerbody.xml");
+
+        File upperBodyDir = getDir("haarcascade_upperbody", Context.MODE_PRIVATE);
+        upperBodyClassifierFile = new File(upperBodyDir, "haarcascade_upperbody.xml");
+
     }
 
     private void checkPermissions() {
@@ -90,19 +118,16 @@ public class RealTimeDetectionActivity extends AppCompatActivity implements Came
     }
 
     private void loadCameraBridge() {
-        OpenCvCameraView.setCameraIndex(CameraBridgeViewBase.CAMERA_ID_FRONT);
+        OpenCvCameraView.setCameraIndex(CameraBridgeViewBase.CAMERA_ID_BACK);
         OpenCvCameraView.setVisibility(SurfaceView.VISIBLE);
         OpenCvCameraView.setCvCameraViewListener(this);
         OpenCvCameraView.setMaxFrameSize(900, 600);
     }
 
-    private void loadHaarCascadeFile1(String classifierName, int classifierPosition) {
+    private void loadHaarCascadeFile(File classifierName, String classifierXmlFileName, int classifierPosition) {
         try {
-            File cascadeDir = getDir(classifierName, Context.MODE_PRIVATE);
-            cascadeFile1 = new File(cascadeDir, classifierName + ".xml");
-
-            if (!cascadeFile1.exists()) {
-                FileOutputStream os = new FileOutputStream(cascadeFile1);
+            if (!classifierName.exists()) {
+                FileOutputStream os = new FileOutputStream(classifierName);
                 InputStream is = getResources().openRawResource(classifierPosition);
                 byte[] buffer = new byte[4096];
                 int bytesRead;
@@ -113,28 +138,7 @@ public class RealTimeDetectionActivity extends AppCompatActivity implements Came
                 os.close();
             }
         } catch (Throwable throwable) {
-            throw new RuntimeException("Failed to load Haar Cascade file" + classifierName);
-        }
-    }
-
-    private void loadHaarCascadeFile2(String classifierName, int classifierPosition) {
-        try {
-            File cascadeDir = getDir(classifierName, Context.MODE_PRIVATE);
-            cascadeFile2 = new File(cascadeDir, classifierName + ".xml");
-
-            if (!cascadeFile2.exists()) {
-                FileOutputStream os = new FileOutputStream(cascadeFile2);
-                InputStream is = getResources().openRawResource(classifierPosition);
-                byte[] buffer = new byte[4096];
-                int bytesRead;
-                while ((bytesRead = is.read(buffer)) != -1) {
-                    os.write(buffer, 0, bytesRead);
-                }
-                is.close();
-                os.close();
-            }
-        } catch (Throwable throwable) {
-            throw new RuntimeException("Failed to load Haar Cascade file" + classifierName);
+            throw new RuntimeException("Failed to load Haar Cascade file" + classifierXmlFileName);
         }
     }
 
@@ -148,10 +152,10 @@ public class RealTimeDetectionActivity extends AppCompatActivity implements Came
     public void onResume() {
         super.onResume();
         if (!isPermissionGranted()) return;
-        resumeOCV();
+        resumeOpenCv();
     }
 
-    private void resumeOCV() {
+    private void resumeOpenCv() {
         if (OpenCVLoader.initDebug()) {
             Log.d(TAG, "OpenCV library found inside package. Using it!");
             baseLoaderCallback.onManagerConnected(LoaderCallbackInterface.SUCCESS);
@@ -159,11 +163,21 @@ public class RealTimeDetectionActivity extends AppCompatActivity implements Came
             Log.d(TAG, "Internal OpenCV library not found. Using OpenCV Manager for initialization");
             OpenCVLoader.initAsync(OpenCVLoader.OPENCV_VERSION, this, baseLoaderCallback);
         }
-        cascadeClassifier1 = new CascadeClassifier(cascadeFile1.getAbsolutePath());
-        cascadeClassifier1.load(cascadeFile1.getAbsolutePath());
+        eyeClassifier = new CascadeClassifier(eyeClassifierFile.getAbsolutePath());
+        eyeClassifier.load(eyeClassifierFile.getAbsolutePath());
 
-        cascadeClassifier2 = new CascadeClassifier(cascadeFile2.getAbsolutePath());
-        cascadeClassifier2.load(cascadeFile2.getAbsolutePath());
+        eyeGlassesClassifier = new CascadeClassifier(eyeGlassesClassifierFile.getAbsolutePath());
+        eyeGlassesClassifier.load(eyeGlassesClassifierFile.getAbsolutePath());
+
+        faceClassifier = new CascadeClassifier(faceClassifierFile.getAbsolutePath());
+        faceClassifier.load(faceClassifierFile.getAbsolutePath());
+
+        lowerBodyClassifier = new CascadeClassifier(lowerBodyClassifierFile.getAbsolutePath());
+        lowerBodyClassifier.load(lowerBodyClassifierFile.getAbsolutePath());
+
+        upperBodyClassifier = new CascadeClassifier(upperBodyClassifierFile.getAbsolutePath());
+        upperBodyClassifier.load(upperBodyClassifierFile.getAbsolutePath());
+
     }
 
     public Mat onCameraFrame(CameraBridgeViewBase.CvCameraViewFrame inputFrame) {
@@ -175,36 +189,34 @@ public class RealTimeDetectionActivity extends AppCompatActivity implements Came
         frame = mRgba.clone();
 
         if (frame != null) {
-            MatOfRect matOfRect1 = new MatOfRect();
-            MatOfRect matOfRect2 = new MatOfRect();
-            cascadeClassifier1.detectMultiScale(frame, matOfRect1, 1.2, 5, 0, new Size(80, 80));
-            numberOfDetectedObjects1 = matOfRect1.toArray();
-            if (numberOfDetectedObjects1.length > 0) {
-                //Log.d("P1 numDetectedObjects", numberOfDetectedObjects.length+"");
-                for (int i = 0; i < numberOfDetectedObjects1.length; i++) {
-                    Imgproc.rectangle(frame, numberOfDetectedObjects1[i].tl(), numberOfDetectedObjects1[i].br(), new Scalar(255,0,0), 3);
+            MatOfRect matOfRect = new MatOfRect();
 
-                    point.x = numberOfDetectedObjects1[i].tl().x - 5.0;
-                    point.y = numberOfDetectedObjects1[i].tl().y - 5.0;
+            detectObject(eyeClassifier, matOfRect, new Size(30, 30),"Eye", new Scalar(0, 255, 0));
+            //detectObject(eyeGlassesClassifier, matOfRect, new Size(80, 80),"Eye", new Scalar(0, 0, 255));
+            detectObject(faceClassifier, matOfRect, new Size(50, 50),"Face", new Scalar(255, 0, 0));
+            detectObject(lowerBodyClassifier, matOfRect, new Size(50, 50),"Lower Body", new Scalar(0, 0, 255));
+            detectObject(upperBodyClassifier, matOfRect, new Size(80, 80),"Upper Body", new Scalar(255, 255, 0));
 
-                    Imgproc.putText(frame, "Face", point, 2, 1, new Scalar(255, 0, 0));
-                }
-            }
-            cascadeClassifier2.detectMultiScale(frame, matOfRect2, 1.2, 5, 0, new Size(80, 80));
-            numberOfDetectedObjects2 = matOfRect2.toArray();
-            if (numberOfDetectedObjects2.length > 0) {
-                //Log.d("P1 numDetectedObjects", numberOfDetectedObjects.length+"");
-                for (int i = 0; i < numberOfDetectedObjects2.length; i++) {
-                    Imgproc.rectangle(frame, numberOfDetectedObjects2[i].tl(), numberOfDetectedObjects2[i].br(), new Scalar(0,255,0), 3);
-
-                    point.x = numberOfDetectedObjects2[i].tl().x - 5.0;
-                    point.y = numberOfDetectedObjects2[i].tl().y - 5.0;
-
-                    Imgproc.putText(frame, "Eye", point, 2, 1, new Scalar(0, 255, 0));
-                }
-            }
         }
         return frame;
+    }
+
+    private void detectObject(CascadeClassifier cascadeClassifier, MatOfRect matOfRect,Size objectSize, String classifierDescription, Scalar frameColor){
+        Rect[] numberOfDetectedObjects;
+
+        cascadeClassifier.detectMultiScale(frame, matOfRect, 1.2, 5, 0, objectSize);
+        numberOfDetectedObjects = matOfRect.toArray();
+        if (numberOfDetectedObjects.length > 0) {
+            for (int i = 0; i < numberOfDetectedObjects.length; i++) {
+                Imgproc.rectangle(frame, numberOfDetectedObjects[i].tl(), numberOfDetectedObjects[i].br(), frameColor, 3);
+
+                point.x = numberOfDetectedObjects[i].tl().x - 5.0;
+                point.y = numberOfDetectedObjects[i].tl().y - 5.0;
+
+                Imgproc.putText(frame, classifierDescription, point, 2, 1, frameColor);
+            }
+        }
+        matOfRect.release();
     }
 
     @Override
